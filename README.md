@@ -25,7 +25,7 @@ Everything stays on your machine. Traces go to a local SQLite file. Embeddings r
 ## Get started
 
 ```
-pip install driftshield
+pip install driftshield-mini
 ```
 
 ### LangChain
@@ -190,7 +190,7 @@ What it IS: the smallest, simplest tool that does one thing well — tells you w
 This is early. If you're running agents in production and hit a case DriftShield missed (or flagged incorrectly), please open an issue. Your real-world edge cases are the most valuable thing you can give this project right now.
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/driftshield.git
+git clone https://github.com/YOUR_USERNAME/Driftshield-mini.git
 cd driftshield
 python -m venv .venv
 source .venv/bin/activate  # or .venv\Scripts\activate on Windows

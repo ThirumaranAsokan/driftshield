@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "driftshield"
+name = "driftshield-mini"
 version = "0.1.0"
 description = "Real-time behavioural drift detection for agentic AI systems"
 readme = "README.md"

@@ -1,16 +1,32 @@
-# DriftShield Mini
+# DriftShield
 
-**Real-time behavioural drift detection for agentic AI systems.**
+Your LangChain agent just called the same API 47 times. Your CrewAI crew burned £200 in tokens overnight. Your research agent started writing marketing copy instead of financial summaries.
 
-Wraps existing LangChain and CrewAI agents, monitors their live behaviour against a learned baseline, and fires Slack/Discord alerts when drift is detected. No dashboard. No cloud dependency. Zero infrastructure.
+You didn't find out until morning.
 
-## Installation
+**DriftShield catches this stuff in real-time.** It wraps your existing agent, watches what it does, and pings you on Slack or Discord the moment something goes sideways. No dashboard. No cloud. No account to create. Just a Python library that runs alongside your agent.
 
-```bash
+---
+
+## What it actually does
+
+DriftShield monitors three things:
+
+**Loop detection**:  Is your agent calling the same tool over and over? Or stuck in a cycle like `search → format → search → format`? DriftShield spots the pattern and alerts you before it eats your budget.
+
+**Goal drift**:  Is your agent still doing what you asked it to? DriftShield uses local embeddings (runs on your CPU, no API calls) to measure how far the agent's output has drifted from its original objective.
+
+**Resource spikes**:  Is this run burning way more tokens or taking way longer than usual? DriftShield learns what "normal" looks like for your agent, then flags when things go abnormal.
+
+Everything stays on your machine. Traces go to a local SQLite file. Embeddings run on your CPU. The only thing that leaves your machine is the alert you choose to send to Slack/Discord.
+
+---
+
+## Get started
+
+```
 pip install driftshield
 ```
-
-## Quick Start
 
 ### LangChain
 
@@ -20,14 +36,11 @@ from driftshield import DriftMonitor
 monitor = DriftMonitor(
     agent_id="logistics-v2",
     alert_webhook="https://hooks.slack.com/...",
-    calibration_runs=30,  # baseline from first 30 runs
 )
 
 agent = monitor.wrap(existing_agent)
-
-# That's it. Run the agent normally.
-# DriftShield captures traces, builds baseline, and alerts automatically.
 result = agent.invoke({"input": "optimise route for order #4821"})
+# DriftShield is now watching. That's it.
 ```
 
 ### CrewAI
@@ -44,89 +57,159 @@ crew = DriftCrew(
 result = crew.kickoff()
 ```
 
-### Manual Instrumentation
+### Works with any LLM
 
-```python
-from driftshield import DriftMonitor
+OpenAI, Anthropic, Groq, Ollama, local models doesn't matter. DriftShield only sees the traces (tool calls, token counts, outputs), not the model internals. Swap providers whenever you want.
 
-monitor = DriftMonitor(agent_id="my-agent")
+---
 
-run_id = monitor.start_run(goal="Summarise Q4 financial reports")
+## How calibration works
 
-# Record events as your agent runs
-drifts = monitor.record_event(
-    action_type="tool_call",
-    action_name="search_database",
-    token_count=150,
-)
+For the first 30 runs (configurable), DriftShield quietly observes your agent and builds a baseline average tokens per run, typical tool sequences, normal execution time. No alerts during this phase.
 
-if drifts:
-    print(f"Drift detected: {drifts[0].message}")
+After that, it knows what "normal" looks like and starts flagging deviations. You can inspect the baseline anytime:
 
-monitor.end_run()
+```bash
+driftshield baseline my-agent
 ```
 
-## Three Drift Detectors
+> **Tip:** If 30 runs feels like a lot, you can lower `calibration_runs` or use a preset template. DriftShield still catches obvious problems (like 50 identical tool calls) even without a baseline, using absolute safety limits.
 
-| Detector | What it catches | How it works |
-|----------|----------------|--------------|
-| **Action Loop** | Agents stuck in repetitive cycles | Sliding window sequence matching |
-| **Goal Drift** | Agent wandering from its objective | Sentence embeddings + cosine similarity |
-| **Resource Spike** | Abnormal token/time consumption | Statistical deviation from baseline |
+---
+
+## What an alert looks like
+
+When drift hits your Slack/Discord, you get:
+
+```json
+{
+  "agent_id": "logistics-v2",
+  "detector": "action_loop",
+  "severity": "HIGH",
+  "message": "Action loop: search_inventory called 6x in 45s",
+  "suggested_action": "Check search_inventory input/output for stale data or error loops",
+  "context": {
+    "tool_name": "search_inventory",
+    "repeat_count": 6,
+    "recent_actions": ["search_inventory", "search_inventory", "search_inventory", "..."]
+  }
+}
+```
+
+Not just "something's wrong" — it tells you what happened, which detector caught it, and what to check first.
+
+---
 
 ## CLI
 
 ```bash
-# View recent alerts
+# What went wrong in the last 24 hours?
 driftshield alerts --last 24h
 
-# Inspect traces for a specific agent
+# Show me exactly what my agent did on its last run
 driftshield traces logistics-v2 --run latest
 
-# Show baseline statistics
+# What does "normal" look like for this agent?
 driftshield baseline logistics-v2
 
 # List recent runs
 driftshield runs logistics-v2
 ```
 
+---
+
 ## Configuration
+
+Everything's tuneable. Defaults are sensible, but you can adjust:
 
 ```python
 monitor = DriftMonitor(
     agent_id="my-agent",
     alert_webhook="https://hooks.slack.com/...",
     goal_description="Summarise financial reports",
-    calibration_runs=30,         # runs before baseline is ready
-    loop_window=20,              # sliding window for loop detection
-    loop_max_repeats=4,          # repeats before flagging
-    similarity_threshold=0.5,    # goal drift sensitivity
-    spike_multiplier=2.5,        # std deviations for resource spike
-    min_alert_severity="MED",    # minimum severity to alert on
-    alert_cooldown=60.0,         # seconds between alerts per detector
+    calibration_runs=30,         # runs before baseline kicks in
+    loop_window=20,              # how many recent actions to check
+    loop_max_repeats=4,          # repeated calls before flagging
+    similarity_threshold=0.5,    # goal drift sensitivity (lower = stricter)
+    spike_multiplier=2.5,        # how many std devs = a spike
+    min_alert_severity="MED",    # ignore LOW severity events
+    alert_cooldown=60.0,         # don't spam the same alert
 )
 ```
 
-## Drift Callbacks
+---
+
+## Custom reactions
+
+DriftShield alerts you by default, but you can also react programmatically:
 
 ```python
 def handle_drift(event):
     if event.severity.value == "CRITICAL":
-        # Kill the agent, page on-call, etc.
-        pass
+        agent.stop()  # kill the run
+        page_oncall()  # wake someone up
 
 monitor.on_drift(handle_drift)
 ```
 
-## Tech Stack
+---
+
+## What this isn't
+
+I want to be upfront about scope. DriftShield is **v0.1**, built by one person.
+
+- **Not a full observability platform.** No web dashboard, no hosted backend, no team features. If you need that, look at LangSmith, Langfuse, or Arize.
+- **Not a guardrail system.** It detects drift after the fact and alerts you. It doesn't block actions before they happen (that's on the roadmap).
+- **Not production-hardened yet.** It works, it's tested, but it hasn't been battle-tested by thousands of users. Expect rough edges.
+
+What it IS: the smallest, simplest tool that does one thing well — tells you when your agent is going off the rails, fast, with zero setup overhead.
+
+---
+
+## Roadmap
+
+- **v0.2** — Auto-correction hooks (retry, context trim, kill run). Preset baseline templates so you get value from run 1.
+- **v0.3** — Better multi-agent support. Predictive drift (catch it before it happens).
+- **v1.0** — Dashboard, team features, historical analytics. But only if people actually want it.
+
+---
+
+## Built with
 
 - Python 3.10+
-- SQLite (local, zero config)
-- sentence-transformers (CPU, no API calls)
-- scikit-learn (basic statistics)
-- httpx (webhook delivery)
+- SQLite (zero config)
+- sentence-transformers (local CPU embeddings)
+- scikit-learn (basic stats)
+- httpx (webhooks)
 - click + rich (CLI)
+
+---
+
+## Contributing
+
+This is early. If you're running agents in production and hit a case DriftShield missed (or flagged incorrectly), please open an issue. Your real-world edge cases are the most valuable thing you can give this project right now.
+
+```bash
+git clone https://github.com/YOUR_USERNAME/driftshield.git
+cd driftshield
+python -m venv .venv
+source .venv/bin/activate  # or .venv\Scripts\activate on Windows
+pip install -e ".[dev]"
+python -m pytest tests/ -v
+```
+
+---
+
+## Why I built this
+
+I kept reading the same story: dev builds agent, agent works great in testing, agent goes haywire in production at 2am, dev wakes up to a hefty API bill and a Slack full of confused users. The big observability platforms exist but they're heavy on dashboards, accounts, pricing tiers, cloud dependencies. Most solo devs and small teams just want to know when their agent is broken. That's it.
+
+So I built the smallest thing that solves that problem.
+
+If you try it and it helps (or doesn't), I genuinely want to hear about it.
+
+---
 
 ## License
 
-MIT
+MIT - do whatever you want with it.

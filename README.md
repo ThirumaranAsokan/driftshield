@@ -156,7 +156,7 @@ monitor.on_drift(handle_drift)
 
 ## What this isn't
 
-I want to be upfront about scope. DriftShield is **v0.1**, built by one person.
+I want to be upfront about scope. DriftShield is **v0.1.1**, built by one person.
 
 - **Not a full observability platform.** No web dashboard, no hosted backend, no team features. If you need that, look at LangSmith, Langfuse, or Arize.
 - **Not a guardrail system.** It detects drift after the fact and alerts you. It doesn't block actions before they happen (that's on the roadmap).
